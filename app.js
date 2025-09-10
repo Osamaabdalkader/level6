@@ -1,9 +1,10 @@
-// app.js - الإصدار الكامل بعد التعديل
+// app.js - الإصدار المعدل والمتكامل
 import { 
   auth, database, storage,
   onAuthStateChanged, signOut,
   ref, onValue, serverTimestamp, push, set, update, remove
 } from './firebase.js';
+import { authManager } from './auth.js'; // استيراد مدير المصادقة
 
 // عناصر DOM
 const postsContainer = document.getElementById('posts-container');
@@ -16,7 +17,6 @@ const moreIcon = document.getElementById('more-icon');
 const groupsIcon = document.getElementById('groups-icon');
 const cartIcon = document.getElementById('cart-icon');
 
-
 // متغيرات النظام
 let currentUserData = null;
 let adminUsers = [];
@@ -27,9 +27,12 @@ let currentFilter = {
 };
 
 // تحميل المنشورات عند بدء التحميل
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // الانتظار حتى يتم تهيئة مدير المصادقة أولاً
+    await authManager.init();
+    
+    // الآن تحميل باقي المحتوى
     loadPosts();
-    checkAuthState();
     initFiltersAndSearch();
     setupEventListeners();
 });
@@ -46,8 +49,7 @@ function setupEventListeners() {
     // أيقونة الملف الشخصي في الهيدر
     if (profileHeaderIcon) {
         profileHeaderIcon.addEventListener('click', () => {
-            const user = auth.currentUser;
-            if (user) {
+            if (authManager.currentUser) {
                 window.location.href = 'profile.html';
             } else {
                 window.location.href = 'login.html';
@@ -58,9 +60,7 @@ function setupEventListeners() {
     // أيقونة الجروبات
     if (groupsIcon) {
         groupsIcon.addEventListener('click', () => {
-            const user = auth.currentUser;
-            if (user) {
-                // الانتقال إلى groups .html للمستخدم المسجل
+            if (authManager.currentUser) {
                 window.location.href = 'groups.html';
             } else {
                 alert('يجب تسجيل الدخول أولاً للوصول إلى الرسائل');
@@ -72,9 +72,7 @@ function setupEventListeners() {
     // أيقونة السلة
     if (cartIcon) {
         cartIcon.addEventListener('click', () => {
-            const user = auth.currentUser;
-            if (user) {
-                // الانتقال .carthtml للمستخدم المسجل
+            if (authManager.currentUser) {
                 window.location.href = 'cart.html';
             } else {
                 alert('يجب تسجيل الدخول أولاً للوصول إلى الرسائل');
@@ -86,9 +84,7 @@ function setupEventListeners() {
     // أيقونة الدعم    
     if (supportIcon) {
         supportIcon.addEventListener('click', () => {
-            const user = auth.currentUser;
-            if (user) {
-                // الانتقال إلى messages.html للمستخدم المسجل
+            if (authManager.currentUser) {
                 window.location.href = 'messages.html';
             } else {
                 alert('يجب تسجيل الدخول أولاً للوصول إلى الرسائل');
@@ -97,15 +93,12 @@ function setupEventListeners() {
         });
     }
     
-    // أيقونة المزيد (
+    // أيقونة المزيد
     if (moreIcon) {
         moreIcon.addEventListener('click', () => {
-            const user = auth.currentUser;
-            if (user && currentUserData && currentUserData.isAdmin) {
-                // الانتقال إلى orders.html للمشرفين
+            if (authManager.currentUser && authManager.isAdmin) {
                 window.location.href = 'orders.html';
-            } else if (user) {
-                // الانتقال إلى more.html للمستخدمين العاديين
+            } else if (authManager.currentUser) {
                 window.location.href = 'more.html'; 
             } else {
                 alert('يجب تسجيل الدخول أولاً');
@@ -113,48 +106,6 @@ function setupEventListeners() {
             }
         });
     }
-                                           }
-
-  
-// التحقق من حالة المصادقة
-function checkAuthState() {
-    onAuthStateChanged(auth, user => {
-        if (user) {
-            // تحميل بيانات المستخدم الحالي
-            const userRef = ref(database, 'users/' + user.uid);
-            onValue(userRef, (snapshot) => {
-                if (snapshot.exists()) {
-                    currentUserData = snapshot.val();
-                    currentUserData.uid = user.uid;
-                    
-                    // تحديث واجهة المستخدم
-                    updateUIForLoggedInUser();
-                    
-                    // تحميل المشرفين
-                    loadAdminUsers();
-                }
-            });
-        } else {
-            // المستخدم غير ممسجل
-            updateUIForLoggedOutUser();
-        }
-    });
-}
-
-// تحميل المشرفين
-function loadAdminUsers() {
-    const usersRef = ref(database, 'users');
-    onValue(usersRef, (snapshot) => {
-        adminUsers = [];
-        if (snapshot.exists()) {
-            const users = snapshot.val();
-            for (const userId in users) {
-                if (users[userId].isAdmin) {
-                    adminUsers.push(userId);
-                }
-            }
-        }
-    });
 }
 
 // تحميل المنشورات للجميع
@@ -391,3 +342,31 @@ function showLoading() {
 function hideLoading() {
     if (loadingOverlay) loadingOverlay.classList.add('hidden');
 }
+
+// تحديث واجهة المستخدم بناءً على حالة تسجيل الدخول
+function updateUIForLoggedInUser() {
+    // إخفاء عناصر التسجيل وإظهار عناصر تسجيل الدخول
+    const authElements = document.querySelectorAll('.auth-only');
+    const unauthElements = document.querySelectorAll('.unauth-only');
+    const adminElements = document.querySelectorAll('.admin-only');
+    
+    authElements.forEach(el => el.style.display = 'block');
+    unauthElements.forEach(el => el.style.display = 'none');
+    
+    if (authManager.isAdmin) {
+        adminElements.forEach(el => el.style.display = 'block');
+    } else {
+        adminElements.forEach(el => el.style.display = 'none');
+    }
+}
+
+function updateUIForLoggedOutUser() {
+    // إخفاء عناصر تسجيل الدخول وإظهار عناصر التسجيل
+    const authElements = document.querySelectorAll('.auth-only');
+    const unauthElements = document.querySelectorAll('.unauth-only');
+    const adminElements = document.querySelectorAll('.admin-only');
+    
+    authElements.forEach(el => el.style.display = 'none');
+    adminElements.forEach(el => el.style.display = 'none');
+    unauthElements.forEach(el => el.style.display = 'block');
+        }
