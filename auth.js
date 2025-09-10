@@ -1,6 +1,7 @@
-// auth.js - الملف المشترك للمصادقة
+// auth.js - الملف المشترك للمصادقة (الإصدار المعدل)
 import { auth, onAuthStateChanged, signOut } from './firebase.js';
-import { checkAdminStatus, onValue, ref, database } from './firebase.js';
+import { checkAdminStatus, onValue, ref, database, set } from './firebase.js';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from './firebase.js';
 
 class AuthManager {
   constructor() {
@@ -8,6 +9,7 @@ class AuthManager {
     this.userData = null;
     this.isAdmin = false;
     this.adminListeners = [];
+    this.setupAuthEventListeners();
   }
 
   async init() {
@@ -31,6 +33,107 @@ class AuthManager {
         }
       });
     });
+  }
+
+  setupAuthEventListeners() {
+    // تسجيل الدخول
+    const loginBtn = document.getElementById('login-btn');
+    if (loginBtn) {
+      loginBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.handleLogin();
+      });
+    }
+
+    // إنشاء حساب
+    const signupBtn = document.getElementById('signup-btn');
+    if (signupBtn) {
+      signupBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.handleSignup();
+      });
+    }
+
+    // تغيير علامات التوثيق
+    const authTabs = document.querySelector('.auth-tabs');
+    if (authTabs) {
+      authTabs.addEventListener('click', (e) => {
+        if (e.target.classList.contains('tab-btn')) {
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          e.target.classList.add('active');
+          
+          if (e.target.dataset.tab === 'login') {
+            document.getElementById('login-form').classList.remove('hidden');
+            document.getElementById('signup-form').classList.add('hidden');
+          } else {
+            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('signup-form').classList.remove('hidden');
+          }
+          
+          this.hideAuthMessage();
+        }
+      });
+    }
+  }
+
+  async handleLogin() {
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    const authMessage = document.getElementById('auth-message');
+    
+    if (!email || !password) {
+      this.showAuthMessage('يرجى ملء جميع الحقول', 'error');
+      return;
+    }
+    
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      this.showAuthMessage('تم تسجيل الدخول بنجاح!', 'success');
+      
+      setTimeout(() => {
+        window.location.href = 'index.html';
+      }, 1000);
+    } catch (error) {
+      this.showAuthMessage(this.getAuthErrorMessage(error.code), 'error');
+    }
+  }
+
+  async handleSignup() {
+    const name = document.getElementById('signup-name').value;
+    const phone = document.getElementById('signup-phone').value;
+    const email = document.getElementById('signup-email').value;
+    const password = document.getElementById('signup-password').value;
+    const address = document.getElementById('signup-address').value;
+    
+    if (!name || !phone || !email || !password) {
+      this.showAuthMessage('يرجى ملء جميع الحقول الإلزامية', 'error');
+      return;
+    }
+    
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      // حفظ بيانات المستخدم الإضافية في قاعدة البيانات
+      const userData = {
+        name: name,
+        phone: phone,
+        email: email,
+        address: address,
+        createdAt: Date.now(),
+        isAdmin: false
+      };
+      
+      await set(ref(database, 'users/' + user.uid), userData);
+      
+      this.showAuthMessage('تم إنشاء الحساب بنجاح!', 'success');
+      
+      setTimeout(() => {
+        window.location.href = 'index.html';
+      }, 1000);
+    } catch (error) {
+      this.showAuthMessage(this.getAuthErrorMessage(error.code), 'error');
+    }
   }
 
   async checkAndUpdateAdminStatus(userId) {
@@ -129,16 +232,36 @@ class AuthManager {
     }
   }
 
-  showAlert(element, type, message) {
-    if (!element) return;
+  showAuthMessage(message, type) {
+    const authMessage = document.getElementById('auth-message');
+    if (!authMessage) return;
     
-    element.textContent = message;
-    element.className = `alert alert-${type}`;
-    element.style.display = 'block';
+    authMessage.textContent = message;
+    authMessage.className = `alert alert-${type}`;
+    authMessage.style.display = 'block';
     
     setTimeout(() => {
-      element.style.display = 'none';
+      authMessage.style.display = 'none';
     }, 3000);
+  }
+
+  hideAuthMessage() {
+    const authMessage = document.getElementById('auth-message');
+    if (authMessage) {
+      authMessage.style.display = 'none';
+    }
+  }
+
+  getAuthErrorMessage(code) {
+    switch(code) {
+      case 'auth/invalid-email': return 'البريد الإلكتروني غير صالح';
+      case 'auth/user-disabled': return 'هذا الحساب معطل';
+      case 'auth/user-not-found': return 'لا يوجد حساب مرتبط بهذا البريد الإلكتروني';
+      case 'auth/wrong-password': return 'كلمة المرور غير صحيحة';
+      case 'auth/email-already-in-use': return 'هذا البريد الإلكتروني مستخدم بالفعل';
+      case 'auth/weak-password': return 'كلمة المرور ضعيفة (يجب أن تحتوي على 6 أحرف على الأقل)';
+      default: return 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى';
+    }
   }
 
   // التحقق من صلاحية المشرف - الإصدار المعدل
